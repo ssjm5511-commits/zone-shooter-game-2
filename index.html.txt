@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zone Shooter Lobby</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Use a retro-futuristic font (Orbitron fallback) -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@400;700&display=swap');
+        
+        /* Base styles */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117; /* GitHub Dark/Deep Space */
+            color: #c9d1d9; /* Off-White Text */
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding-top: 3rem;
+        }
+        
+        /* Neon Card Effect */
+        .neon-card {
+            background: #161b22; /* Slightly lighter inner background */
+            border: 1px solid #30363d;
+            box-shadow: 0 0 10px rgba(76, 217, 100, 0.2); /* Subtle green glow */
+            border-radius: 0.75rem;
+            transition: all 0.3s ease;
+        }
+
+        /* Neon Button Styling */
+        .neon-button {
+            background-color: #4cd964; /* Neon Green */
+            color: #0d1117;
+            text-shadow: 0 0 5px #4cd964;
+            box-shadow: 0 0 15px rgba(76, 217, 100, 0.6);
+            border: 2px solid #4cd964;
+            font-family: 'Orbitron', sans-serif;
+            transition: all 0.15s ease-in-out;
+        }
+        .neon-button:hover:enabled {
+            background-color: #38a169;
+            box-shadow: 0 0 25px rgba(76, 217, 100, 0.8);
+            transform: translateY(-2px);
+        }
+        .neon-button:disabled {
+            background-color: #30363d;
+            color: #7d8b99;
+            box-shadow: none;
+            cursor: not-allowed;
+            border-color: #30363d;
+        }
+
+        /* List Item Style */
+        .game-item {
+            border-left: 4px solid #4cd964;
+        }
+        
+        /* Input Field Style */
+        .neon-input {
+            background-color: #0d1117;
+            border: 1px solid #4cd964;
+            color: #c9d1d9;
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.5rem;
+            width: 100%;
+            transition: border-color 0.15s;
+            text-transform: uppercase;
+        }
+        .neon-input:focus {
+            outline: none;
+            border-color: #38a169;
+            box-shadow: 0 0 8px rgba(76, 217, 100, 0.5);
+        }
+    </style>
+</head>
+<body>
+
+<div class="w-full max-w-2xl flex flex-col space-y-8 p-4">
+    
+    <!-- HEADER & STATUS -->
+    <header class="text-center">
+        <h1 class="text-5xl font-bold text-[#4cd964] mb-2" style="font-family: 'Orbitron', sans-serif;">ZONE SHOOTER // LOBBY</h1>
+        <p id="user-status" class="text-sm text-gray-500">INITIATING AUTH PROTOCOL...</p>
+    </header>
+
+    <!-- ACTION CARD (CREATE GAME) -->
+    <div class="neon-card p-6 flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0 md:space-x-4">
+        <div class="flex-grow">
+            <h2 class="text-xl font-semibold mb-2 text-green-300">New Match Deployment</h2>
+        </div>
+        
+        <div class="flex flex-col space-y-2 items-end w-full md:w-auto">
+            <button 
+                id="create-game-btn" 
+                class="neon-button w-full px-6 py-3 font-semibold rounded-lg text-sm" 
+                disabled
+            >
+                >> CREATE NEW GAME
+            </button>
+            <div id="loading-indicator" class="text-xs text-yellow-500 hidden pt-1">
+                TRANSMITTING DATA...
+            </div>
+        </div>
+    </div>
+    
+    <!-- JOIN GAME CARD (NEW) -->
+    <div class="neon-card p-6 space-y-4">
+        <h2 class="text-xl font-semibold mb-2 text-yellow-300">Join by Match ID</h2>
+        <div class="flex flex-col md:flex-row space-y-3 md:space-y-0 md:space-x-4">
+            <input 
+                type="text" 
+                id="match-id-input" 
+                placeholder="ENTER 6-CHAR MATCH ID" 
+                maxlength="6"
+                class="neon-input flex-grow text-center tracking-widest"
+                disabled
+            />
+            <button 
+                id="join-game-btn" 
+                class="neon-button px-6 py-3 font-semibold rounded-lg text-sm bg-yellow-600 border-yellow-600 text-black w-full md:w-auto" 
+                disabled
+                style="background-color: #ffd700; border-color: #ffd700; text-shadow: none;"
+            >
+                CONNECT
+            </button>
+        </div>
+        <div id="join-error-message" class="text-sm text-red-400 hidden pt-1"></div>
+    </div>
+    
+    <div id="general-error-message" class="text-sm text-red-400 hidden pt-1"></div>
+
+
+    <!-- ACTIVE GAMES LIST -->
+    <h2 class="text-2xl font-semibold text-gray-300 pt-4 border-t border-[#30363d]">ACTIVE MATCHES (Real-Time)</h2>
+    <div id="games-list" class="space-y-3">
+        <p class="text-gray-500 text-center py-4" id="no-games-message">No active games detected. Press the button to deploy a new match.</p>
+    </div>
+
+</div>
+
+<script type="module">
+    // --- FIREBASE IMPORTS ---
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { 
+        getAuth, 
+        signInAnonymously, 
+        signInWithCustomToken, 
+        onAuthStateChanged 
+    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { 
+        getFirestore, 
+        collection, 
+        addDoc, 
+        onSnapshot, 
+        query, 
+        serverTimestamp,
+        doc,
+        getDoc,
+        updateDoc,
+        arrayUnion
+    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    setLogLevel('Debug');
+    
+    // --- GLOBAL VARIABLES (Provided by Canvas Environment) ---
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-zone-shooter-app';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+    // --- DOM Elements ---
+    const createGameBtn = document.getElementById('create-game-btn');
+    const joinGameBtn = document.getElementById('join-game-btn');
+    const matchIdInput = document.getElementById('match-id-input');
+    const userStatusEl = document.getElementById('user-status');
+    const gamesListEl = document.getElementById('games-list');
+    const noGamesMessageEl = document.getElementById('no-games-message');
+    const loadingIndicatorEl = document.getElementById('loading-indicator');
+    const generalErrorEl = document.getElementById('general-error-message');
+    const joinErrorEl = document.getElementById('join-error-message');
+
+    let db;
+    let auth;
+    let userId = null;
+    let userName = null;
+    let isAuthReady = false;
+    const MAX_PLAYERS = 4;
+
+    // --- UTILITIES ---
+
+    /** Displays a non-intrusive error message (General) */
+    function showError(message, target = generalErrorEl) {
+        console.error("APP ERROR:", message);
+        target.textContent = `[ERROR]: ${message}`;
+        target.classList.remove('hidden');
+        setTimeout(() => target.classList.add('hidden'), 5000);
+    }
+    
+    /** Gets the collection path for public game data */
+    function getGameCollectionRef() {
+        return collection(db, `/artifacts/${appId}/public/data/games`);
+    }
+
+    /** Toggles button and loading state */
+    function setLobbyState(isLoading) {
+        const isEnabled = !isLoading && isAuthReady && userId;
+        
+        // Buttons
+        createGameBtn.disabled = !isEnabled;
+        joinGameBtn.disabled = !isEnabled;
+        
+        // Input
+        matchIdInput.disabled = !isEnabled;
+        
+        // Loading
+        loadingIndicatorEl.classList.toggle('hidden', !isLoading);
+    }
+
+
+    // --- FIREBASE INITIALIZATION & AUTH ---
+
+    async function initializeFirebase() {
+        if (Object.keys(firebaseConfig).length === 0) {
+             showError("Firebase configuration is missing. Cannot proceed.");
+             return;
+        }
+
+        try {
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+
+            onAuthStateChanged(auth, async (user) => {
+                isAuthReady = true;
+                if (user) {
+                    userId = user.uid;
+                    userName = `Pilot_${userId.substring(0, 6)}`;
+                    const shortId = userId.substring(0, 8);
+                    userStatusEl.textContent = `USER CONNECTED | ID: ${shortId} | STATUS: AUTHORIZED`;
+                    setLobbyState(false);
+                    setupGameListener(); 
+                } else {
+                    userId = null;
+                    userName = null;
+                    userStatusEl.textContent = `USER DISCONNECTED | STATUS: UNAUTHORIZED`;
+                    setLobbyState(false);
+                }
+            });
+
+            setLobbyState(true);
+            if (initialAuthToken) {
+                await signInWithCustomToken(auth, initialAuthToken);
+            } else {
+                await signInAnonymously(auth);
+            }
+            
+        } catch (e) {
+            showError(`Initialization or Auth failed: ${e.message}`);
+            setLobbyState(false);
+        }
+    }
+
+
+    // --- GAME LOGIC ---
+
+    /** Handles joining a game by ID or by button click */
+    async function joinGame(gameId) {
+        if (!userId) {
+            showError("User not authenticated. Please wait.", joinErrorEl);
+            return;
+        }
+        
+        setLobbyState(true);
+        joinErrorEl.classList.add('hidden'); // Clear previous join errors
+
+        try {
+            const gameRef = doc(db, `/artifacts/${appId}/public/data/games`, gameId);
+            const gameSnap = await getDoc(gameRef);
+
+            if (!gameSnap.exists()) {
+                throw new Error("Match ID not found or game closed.");
+            }
+
+            const gameData = gameSnap.data();
+            
+            // Check if player is already in the game (This is defensive, UI should prevent this)
+            const isAlreadyIn = gameData.players.some(p => p.id === userId);
+            if (isAlreadyIn) {
+                throw new Error("You are already connected to this match.");
+            }
+            
+            // Check for capacity
+            if (gameData.players.length >= (gameData.maxPlayers || MAX_PLAYERS)) {
+                throw new Error("Match is full (max players reached).");
+            }
+
+            // Add the player to the game
+            await updateDoc(gameRef, {
+                players: arrayUnion({ id: userId, name: userName }),
+                status: gameData.players.length + 1 >= (gameData.maxPlayers || MAX_PLAYERS) ? 'full' : 'waiting for players'
+            });
+            
+            // Success Message (optional)
+            showError(`Successfully connected to Match ${gameId.substring(0, 6)}!`, joinErrorEl);
+            matchIdInput.value = ''; // Clear input on success
+
+        } catch (e) {
+            showError(`Join failed: ${e.message}`, joinErrorEl);
+        } finally {
+            setLobbyState(false);
+        }
+    }
+
+    /** Handler for the "Create Game" button */
+    async function handleCreateGame() {
+        if (!userId) {
+            showError("User not authenticated yet. Please wait.");
+            return;
+        }
+        
+        setLobbyState(true);
+
+        try {
+            const gameData = {
+                hostId: userId,
+                hostName: userName,
+                status: 'waiting for players',
+                players: [{ id: userId, name: userName }],
+                createdAt: serverTimestamp(),
+                maxPlayers: MAX_PLAYERS,
+                map: "Sector Gamma"
+            };
+
+            await addDoc(getGameCollectionRef(), gameData);
+            
+            console.log("Game created successfully by:", userId);
+
+        } catch (e) {
+            showError(`Failed to deploy match: ${e.message}`);
+        } finally {
+            setLobbyState(false);
+        }
+    }
+
+
+    // --- REAL-TIME LISTENER ---
+
+    function setupGameListener() {
+        if (!db || !isAuthReady) return;
+        const gamesQuery = query(getGameCollectionRef());
+
+        onSnapshot(gamesQuery, (snapshot) => {
+            const games = [];
+            snapshot.forEach((doc) => {
+                games.push({ id: doc.id, ...doc.data() });
+            });
+            renderGamesList(games);
+        }, (error) => {
+            showError(`Real-time scan failed: ${error.message}`);
+        });
+    }
+
+    /** Renders the list of active games */
+    function renderGamesList(games) {
+        gamesListEl.innerHTML = ''; 
+        if (games.length === 0) {
+            noGamesMessageEl.classList.remove('hidden');
+            return;
+        }
+
+        noGamesMessageEl.classList.add('hidden');
+        const sortedGames = games.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+
+        sortedGames.forEach(game => {
+            const playerCount = game.players ? game.players.length : 0;
+            const isAlreadyJoined = game.players && game.players.some(p => p.id === userId); // Check if current user is in game
+            const isFull = playerCount >= (game.maxPlayers || MAX_PLAYERS) || isAlreadyJoined;
+            
+            const statusColor = isFull ? 'text-red-400' : (game.status === 'waiting for players' ? 'text-yellow-400' : 'text-green-400');
+            const matchIdShort = game.id.substring(0, 6).toUpperCase();
+            const time = game.createdAt ? new Date(game.createdAt.toMillis()).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : 'N/A';
+
+            const buttonText = isAlreadyJoined ? 'JOINED' : 'CONNECT';
+            const buttonBgColor = isAlreadyJoined ? '#38a169' : '#ffd700'; // Green for joined, yellow for connect
+            
+            const gameEl = document.createElement('div');
+            gameEl.className = 'neon-card game-item rounded-lg p-4 flex justify-between items-center text-sm space-x-3';
+            
+            gameEl.innerHTML = `
+                <div class="flex-grow min-w-0">
+                    <p class="font-bold text-lg text-[#4cd964] truncate" style="font-family: 'Orbitron', sans-serif;">MATCH ID: ${matchIdShort}</p>
+                    <p class="text-gray-400 text-xs truncate">Host: ${game.hostName || 'Unknown'} | Map: ${game.map || 'Unknown'}</p>
+                    <p class="text-xs ${statusColor} mt-1">${playerCount}/${game.maxPlayers || MAX_PLAYERS} PILOTS | ${game.status.toUpperCase()}</p>
+                </div>
+                
+                <div class="flex-shrink-0">
+                    <button 
+                        data-game-id="${game.id}"
+                        class="join-list-btn neon-button px-4 py-2 font-semibold rounded-lg text-xs transition ${isFull || isAlreadyJoined ? 'opacity-50 cursor-not-allowed' : ''}"
+                        ${isFull || isAlreadyJoined ? 'disabled' : ''}
+                        style="background-color: ${buttonBgColor}; border-color: ${buttonBgColor}; color: #0d1117; text-shadow: none;"
+                    >
+                        ${buttonText}
+                    </button>
+                    <p class="text-xs text-gray-500 mt-1 text-right">${time}</p>
+                </div>
+            `;
+            gamesListEl.appendChild(gameEl);
+        });
+        
+        // Attach event listeners to the new "CONNECT" buttons in the list
+        document.querySelectorAll('.join-list-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const gameId = e.currentTarget.getAttribute('data-game-id');
+                joinGame(gameId);
+            });
+        });
+    }
+
+    // --- EVENT LISTENERS & STARTUP ---
+    
+    // Create Game Button Handler
+    createGameBtn.addEventListener('click', handleCreateGame);
+    
+    // Join Game Button (Manual ID) Handler
+    joinGameBtn.addEventListener('click', () => {
+        const inputId = matchIdInput.value.trim().toUpperCase();
+        if (inputId.length !== 6) {
+            showError("Match ID must be exactly 6 characters.", joinErrorEl);
+            return;
+        }
+        
+        // To make this work robustly without a custom short-code field:
+        // We fetch ALL active games (already done by the listener) and find the match client-side.
+        const activeGames = Array.from(gamesListEl.children)
+            .filter(el => el.querySelector('.join-list-btn'))
+            .map(el => el.querySelector('.join-list-btn').getAttribute('data-game-id'));
+        
+        const fullMatchId = activeGames.find(id => id.toUpperCase().startsWith(inputId));
+        
+        if (fullMatchId) {
+            joinGame(fullMatchId);
+        } else {
+            showError(`Match ID ${inputId} not found.`, joinErrorEl);
+        }
+    });
+
+
+    // Start the process on page load
+    initializeFirebase();
+
+</script>
+</body>
+</html>
